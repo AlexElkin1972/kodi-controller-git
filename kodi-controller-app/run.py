@@ -5,6 +5,7 @@ import requests
 import json
 
 import config as cfg
+import aliases
 from waitress import serve
 
 app = Flask(__name__)
@@ -17,11 +18,12 @@ def entry_point():
     return 'Hello World!'
 
 
+# Rule: {server IP:PORT}/{cfg.SECRET}/channel?request={value} -> Virtual device / TV / Control canals
 @app.route('/{}/channel'.format(cfg.SECRET), methods=['GET'])
 def chan_point():
     if request.args.get("request") in [None, "", "{value}"]:
         chan = get_chan()
-        print("get channel {}".format(chan))
+        print("get channel: {}".format(chan))
         return '{{"value": {}}}'.format(chan), 200
 
     chan = request.args.get("request")
@@ -36,28 +38,40 @@ def chan_point():
         return "Record not found", 400
 
 
+# Rule: {server IP:PORT}/{cfg.SECRET}/label?request={in}
+# NB: This rule NOT for use via virtual device
 @app.route('/{}/label'.format(cfg.SECRET), methods=['GET'])
 def label_point():
     if request.args.get("request") in [None, "", "{value}"]:
         label = get_label()
-        print(u'get label "{}"'.format(label))
+        print(u'get label: "{}"'.format(label))
         return u'{{"value": "{}"}}'.format(label), 200
 
     label = request.args.get("request").upper()
-    label = label.replace(u'ПОСТАВЬ КАНАЛ ', '')
+    label = label.replace(u'ПОСТАВЬ КАНАЛ', '').lstrip()
     print(u'command> label {}'.format(label))
-    channel_id = [x['channelid'] for x in channels if x['label'].upper() == label.upper()]
-    if len(channel_id) > 0:
-        r = requests.post('{}/jsonrpc'.format(cfg.KODIURL),
-                          data='{{"id": 1, "jsonrpc": "2.0", "method": "Player.Open", '
-                               '"params": {{"item": {{"channelid": {}}}}}}}'.format(channel_id[0]))
-        if r.status_code == 200:
-            print("set channel {}".format(channel_id[0]))
-            return '{{"value": {}}}'.format(channel_id[0]), 200
+    if label != "":
+        # Collect aliases for label if any
+        label_aliases = [label]
+        for alias in aliases.ALIASES:
+            if label in aliases.ALIASES[alias]:
+                label_aliases.append(alias)
+                print (u'\t{}'.format(alias))
+        for _label in label_aliases:
+            channel_id = [x['channelid'] for x in channels if x['label'].upper() == _label.upper()]
+            if len(channel_id) > 0:
+                r = requests.post('{}/jsonrpc'.format(cfg.KODIURL),
+                                  data='{{"id": 1, "jsonrpc": "2.0", "method": "Player.Open", '
+                                       '"params": {{"item": {{"channelid": {}}}}}}}'.format(channel_id[0]))
+                if r.status_code == 200:
+                    print("set channel {}".format(channel_id[0]))
+                    return '{{"value": {}}}'.format(channel_id[0]), 200
 
+        print(u'NB: Consider register alias for "{}"'.format(label))
     return "Record not found", 400
 
 
+# Rule: {server IP:PORT}/{cfg.SECRET}/volume?request={value} -> Virtual device / TV / Volume
 @app.route('/{}/volume'.format(cfg.SECRET), methods=['GET'])
 def volume_point():
     if request.args.get("request") in [None, "", "{value}"]:
@@ -77,6 +91,7 @@ def volume_point():
     return "Record not found", 400
 
 
+# Rule: {server IP:PORT}/{cfg.SECRET}/power?request={value} -> Virtual device / TV / Power
 @app.route('/{}/power'.format(cfg.SECRET), methods=['GET'])
 def power_point():
     result = {}
@@ -102,6 +117,7 @@ def power_point():
     return "Record not found", 400
 
 
+# Rule: {server IP:PORT}/{cfg.SECRET}/mute?request={value} -> Virtual device / TV / Mute
 @app.route('/{}/mute'.format(cfg.SECRET), methods=['GET'])
 def mute_point():
     if request.args.get("request") in [None, "", "{value}"]:
@@ -112,7 +128,6 @@ def mute_point():
     print(u'command> mute {}'.format(mute))
     # Issue toggle only if need it
     if mute != ("1" if tv['mute'] else "0"):
-        print ('toggle mute> {}'.format(tv['mute']))
         r = requests.post('{}/jsonrpc'.format(cfg.KODIURL),
                           data='{"jsonrpc": "2.0", "method": "Application.SetMute", '
                                '"params": {"mute": "toggle"}, "id": 1}'
@@ -167,19 +182,31 @@ def get_volume():
 
 # Catalog channels
 def cat_chans():
+    result = []
     try:
+        # Get channel groups
         r = requests.post('{}/jsonrpc'.format(cfg.KODIURL),
-                          data='{"jsonrpc": "2.0", "id":1, "method": "PVR.GetChannels", '
-                               '"params": {"channelgroupid": 2}}', timeout=5)
+                          data='{"jsonrpc": "2.0", "id": 1, "method": "PVR.GetChannelGroups", '
+                               '"params": {"channeltype": "tv"}}', timeout=5)
         if r.status_code == 200:
             js = json.loads(r.content)
-            return js["result"]["channels"]
+            for group in js['result']['channelgroups']:
+                # Get channel group
+                gr = requests.post('{}/jsonrpc'.format(cfg.KODIURL),
+                                   data='{{"jsonrpc": "2.0", "id":1, "method": "PVR.GetChannels", '
+                                        '"params": {{"channelgroupid": {}}}}}'.format(group['channelgroupid']),
+                                   timeout=5)
+                if gr.status_code == 200:
+                    gjs = json.loads(gr.content)
+                    result = result + gjs["result"]["channels"]
+
+        return result
+
     except requests.exceptions.ConnectTimeout:
         print("Kodi is not responding, exiting...")
         exit(2)
 
 
 if __name__ == '__main__':
-    # app.run(debug=cfg.DEBUG)
     channels = cat_chans()
-    serve(app, host='0.0.0.0', port=8081)
+    serve(app, host='0.0.0.0', port=cfg.PORT)

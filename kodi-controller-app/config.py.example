@@ -1,6 +1,8 @@
 # Enable Flask's debugging features. Should be False in production
-DEBUG = True
+DEBUG = False
 # URL to Kodi web interface
 KODIURL = 'http://localhost:8080'
 # SECRET 
 SECRET = 'anysecrectstring'
+# Port of server
+PORT = 8081
