@@ -10,7 +10,7 @@ from waitress import serve
 
 app = Flask(__name__)
 channels = []
-tv = {'mute': False}
+tv = {'mute': False, 'source': 'one'}
 
 
 @app.route('/')
@@ -142,6 +142,23 @@ def mute_point():
     else:
         print("leave mute {}".format(format("1" if tv['mute'] else "0")))
         return '{{"value": {}}}'.format(format("1" if tv['mute'] else "0")), 200
+
+
+# Rule: {server IP:PORT}/{cfg.SECRET}/source?request={value} -> Virtual device / TV / Source
+@app.route('/{}/source'.format(cfg.SECRET), methods=['GET'])
+def source_point():
+    if request.args.get("request") in [None, "", "{value}"]:
+        print(u'get source: {}'.format(tv['source']))
+        return u'{{"value": "{}"}}'.format(tv['source']), 200
+
+    source = request.args.get("request")
+    print(u'command> source {}'.format(source))
+    # Issue source only if it's a valid source (1..10)
+    if source in ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']:
+        tv['source'] = source
+        return u'{{"value": "{}"}}'.format(tv['source']), 200
+    else:
+        return "Record not found", 400
 
 
 # Return current playing channel id or -1
