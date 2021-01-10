@@ -52,11 +52,12 @@ def label_point():
     print(u'command> label {}'.format(label))
     if label != "":
         # Collect aliases for label if any
-        label_aliases = [label]
+        label_aliases = []
         for alias in aliases.ALIASES:
             if label in aliases.ALIASES[alias]:
                 label_aliases.append(alias)
                 print (u'\t{}'.format(alias))
+
         for _label in label_aliases:
             channel_id = [x['channelid'] for x in channels if x['label'].upper() == _label.upper()]
             if len(channel_id) > 0:
@@ -217,6 +218,16 @@ def cat_chans():
                     gjs = json.loads(gr.content)
                     result = result + gjs["result"]["channels"]
 
+        # Check registered aliases for linking with reported channels
+        invalid_aliases = []
+        for al in aliases.ALIASES:
+            if len([x for x in result if x['label'].upper() == al.upper()]) == 0:
+                invalid_aliases.append(al)
+        if len(invalid_aliases) > 0:
+            print ('Followed aliases currently not linked with real channels')
+            print(u"; ".join(invalid_aliases))
+
+        print("Kodi reports {} channels".format(len(result)))
         return result
 
     except requests.exceptions.ConnectTimeout:
