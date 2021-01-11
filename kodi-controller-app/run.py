@@ -52,7 +52,7 @@ def label_point():
     print(u'command> label {}'.format(label))
     if label != "":
         # Collect aliases for label if any
-        label_aliases = []
+        label_aliases = [label]
         for alias in aliases.ALIASES:
             if label in aliases.ALIASES[alias]:
                 label_aliases.append(alias)
