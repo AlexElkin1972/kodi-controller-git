@@ -169,7 +169,12 @@ def get_chan():
                            '"params": {"properties": [], "playerid": 1}}')
     if r.status_code == 200:
         js = json.loads(r.content)
-        return js["result"]["item"]["id"]
+        try:
+            chan_id = js["result"]["item"]["id"]
+        except KeyError:
+            chan_id = '0'
+
+        return chan_id
     else:
         return -1
 
