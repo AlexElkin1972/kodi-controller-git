@@ -131,3 +131,6 @@ dmypy.json
 
 # Keep secret config safe
 kodi-controller-app/config.py
+
+# Database
+*.db

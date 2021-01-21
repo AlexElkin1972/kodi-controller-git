@@ -1,15 +1,23 @@
 #!/usr/bin/python
 # coding: utf-8
 from flask import Flask, request
+from flask_sqlalchemy import SQLAlchemy
+from waitress import serve
 import requests
 import json
+from icecream import ic
 
 import config as cfg
 import aliases
-from waitress import serve
+# import helpers
+
 
 app = Flask(__name__)
-channels = []
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///data/data.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+db.app = app
+# channels = []
 tv = {'mute': False, 'source': 'one'}
 
 
@@ -59,7 +67,8 @@ def label_point():
                 print (u'\t{}'.format(alias))
 
         for _label in label_aliases:
-            channel_id = [x['channelid'] for x in channels if x['label'].upper() == _label.upper()]
+            from helpers import Channel
+            channel_id = [x.id for x in Channel.query.filter(Channel.ulabel == _label).all()]
             if len(channel_id) > 0:
                 r = requests.post('{}/jsonrpc'.format(cfg.KODIURL),
                                   data='{{"id": 1, "jsonrpc": "2.0", "method": "Player.Open", '
@@ -203,43 +212,8 @@ def get_volume():
         return "-1"
 
 
-# Catalog channels
-def cat_chans():
-    result = []
-    try:
-        # Get channel groups
-        r = requests.post('{}/jsonrpc'.format(cfg.KODIURL),
-                          data='{"jsonrpc": "2.0", "id": 1, "method": "PVR.GetChannelGroups", '
-                               '"params": {"channeltype": "tv"}}', timeout=5)
-        if r.status_code == 200:
-            js = json.loads(r.content)
-            for group in js['result']['channelgroups']:
-                # Get channel group
-                gr = requests.post('{}/jsonrpc'.format(cfg.KODIURL),
-                                   data='{{"jsonrpc": "2.0", "id":1, "method": "PVR.GetChannels", '
-                                        '"params": {{"channelgroupid": {}}}}}'.format(group['channelgroupid']),
-                                   timeout=5)
-                if gr.status_code == 200:
-                    gjs = json.loads(gr.content)
-                    result = result + gjs["result"]["channels"]
-
-        # Check registered aliases for linking with reported channels
-        invalid_aliases = []
-        for al in aliases.ALIASES:
-            if len([x for x in result if x['label'].upper() == al.upper()]) == 0:
-                invalid_aliases.append(al)
-        if len(invalid_aliases) > 0:
-            print ('Followed aliases currently not linked with real channels')
-            print(u"; ".join(invalid_aliases))
-
-        print("Kodi reports {} channels".format(len(result)))
-        return result
-
-    except requests.exceptions.ConnectTimeout:
-        print("Kodi is not responding, exiting...")
-        exit(2)
-
-
-if __name__ == '__main__':
-    channels = cat_chans()
+if __name__ == '__main__' and __package__ is None:
+    __package__ = "run"
+    from helpers import cat_chans
+    cat_chans()
     serve(app, host='0.0.0.0', port=cfg.PORT)

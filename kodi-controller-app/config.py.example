@@ -6,3 +6,5 @@ KODIURL = 'http://localhost:8080'
 SECRET = 'anysecrectstring'
 # Port of server
 PORT = 8081
+# URL to TV program
+TVGURL = 'http://www.teleguide.info/download/new3/xmltv.xml.gz'
