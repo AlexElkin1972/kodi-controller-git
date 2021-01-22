@@ -5,6 +5,7 @@ import os.path
 from icecream import ic
 from datetime import datetime
 from dateutil.parser import parse as duparse
+from dateutil.tz import tzoffset
 
 import requests
 from flask_sqlalchemy import SQLAlchemy
@@ -52,7 +53,11 @@ def cat_chans():
             print ('Followed aliases currently not linked with real channels')
             print(u"; ".join(invalid_aliases))
 
-        print("Kodi reports {} channels".format(len(result)))
+        xmlchannels = XMLChannel.query.all()
+        # ic(xmlchannels[0].label, xmlchannels[0].id)
+        # ic(xmlchannels[1].label, xmlchannels[1].id)
+        # ic(xmlchannels[2].label, xmlchannels[2].id)
+        print("Kodi reports {} channels vs {} channels in XMLTV program".format(len(result), len(xmlchannels)))
 
         # Drop content of Channel
         Channel.query.delete()
@@ -109,6 +114,7 @@ class Program(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     channel = db.Column(db.Integer, nullable=False)
     title = db.Column(db.String(128), nullable=False)
+    utitle = db.Column(db.String(128), nullable=False)
     start = db.Column(db.DateTime, nullable=False)
     stop = db.Column(db.DateTime, nullable=False)
     desc = db.Column(db.Text, nullable=True)
@@ -120,6 +126,11 @@ class Program(db.Model):
 
     def __repr__(self):
         return '<Program %r>' % self.title
+
+    def __init__(self, **kwargs):
+        super(Program, self).__init__(**kwargs)
+        # have to do custom stuff due lack of unicode upper in SQLite3
+        self.utitle = self.title.upper()
 
 
 class Category(db.Model):
@@ -182,7 +193,6 @@ def get_xmltv():
             desc = pr['desc'][0][0]
         except KeyError:
             pass
-
         a_category = Category.query.filter(Category.name == pr['category'][0][0]).first()
         if a_category:
             p = Program(channel=int(pr['channel']),
@@ -206,8 +216,78 @@ def get_xmltv():
             db.session.commit()
     db.session.commit()
 
-    categories = [x for x in Category.query.all()]
-    ic(categories)
+    categories = [x.name for x in Category.query.all()]
+    ic(u', '.join(categories))
+
+
+
+def get_programs(category=None, filter_program=None, now=False):
+    ic(["get_programs", category, filter_program, now])
+    if category == None:
+        return [x.name for x in Category.query.all()]
+    filter_program_ = '' if filter_program is None else filter_program
+    category_id = Category.query.filter(Category.name == category).first().id
+    search_pattern = u"%{}%".format(filter_program_.upper())
+    if not now:
+        # Filtered future programs of selected category
+        # offset = tzoffset(None, 10 * 3600)
+        ts_now = datetime.now()
+        # ic(ts_now)
+        programs = Program.query.filter(Program.category_id == category_id,
+                                        Program.utitle.like(search_pattern),
+                                        Program.start > ts_now).all()
+
+        # ic(programs[0].start)
+        program_titles = [{'channel': resolve_kodi_channel(x.channel),
+                           'title': x.title,
+                           'start': str(x.start),
+                           'stop': str(x.stop),
+                           'time_before_start':
+                               (x.start - ts_now).total_seconds()}
+                          for x in programs if resolve_kodi_channel(x.channel)]
+
+        for program_title in sorted(program_titles, key=lambda y: y['time_before_start']):
+            # print(program_title)
+            print (program_title['channel'] +
+                   " " + program_title['title'] + u" через " +
+                   str(int(program_title['time_before_start'] / 60)) + u' мин., в ' +
+                   str(program_title['start']))
+
+        return sorted(program_titles, key=lambda y: y['time_before_start'])
+
+    # Filtered current programs of selected category
+    ts_now = datetime.now()
+    # ic(ts_now)
+    programs = Program.query.filter(Program.category_id == category_id,
+                                    Program.utitle.like(search_pattern),
+                                    Program.start < ts_now,
+                                    Program.stop > ts_now).all()
+
+    program_titles = [{'channel': resolve_kodi_channel(x.channel),
+                       'title': x.title,
+                       'start': str(x.start),
+                       'stop': str(x.stop),
+                       'time_before_stop': (x.stop - ts_now).total_seconds()}
+                      for x in programs if resolve_kodi_channel(x.channel)]
+    for program_title in sorted(program_titles, key=lambda y: y['time_before_stop'], reverse=True):
+        # print(program_title)
+        print (program_title['channel'] +
+               " " + program_title['title'] + u" ещё " +
+               str(int(program_title['time_before_stop'] / 60)) + u' мин., до ' +
+               str(program_title['stop']))
+
+    return sorted(program_titles, key=lambda y: y['time_before_stop'], reverse=True)
+
+
+def resolve_kodi_channel(xmlChannelId):
+    # ic(xmlChannelId)
+    channelUlabel = XMLChannel.query.filter(XMLChannel.id == xmlChannelId).first().ulabel
+    # ic(channelUlabel)
+    channel = Channel.query.filter(Channel.ulabel == channelUlabel).first()
+    # ic(channel)
+    if channel is None:
+        return None
+    return u'{}/{}:'.format(channel.id, channel.label)
 
 
 def init_db():

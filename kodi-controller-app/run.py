@@ -5,7 +5,8 @@ from flask_sqlalchemy import SQLAlchemy
 from waitress import serve
 import requests
 import json
-from icecream import ic
+from datetime import datetime
+# from icecream import ic
 
 import config as cfg
 import aliases
@@ -169,6 +170,30 @@ def source_point():
         return u'{{"value": "{}"}}'.format(tv['source']), 200
     else:
         return "Record not found", 400
+
+
+# Rule: {server IP:PORT}/{cfg.SECRET}/category?request={}&filter_program={}&now={0|1}
+# NB: This rule NOT for use via virtual device
+@app.route('/{}/category'.format(cfg.SECRET), methods=['GET'])
+def category_point():
+    start_ts = datetime.now()
+    result = {}
+    from helpers import get_programs
+    if request.args.get("request") in [None, "", "{value}"]:
+        categories = get_programs()
+        result['value'] = categories
+        print(u'get categories: "{}"'.format(u', '.join(categories)))
+        return json.dumps(result), 200
+    now = False
+    if request.args.get("now") == '1':
+        now = True
+    categories = get_programs(category=request.args.get("request"),
+                              filter_program=request.args.get("filter_program"),
+                              now=now)
+    result['value'] = categories
+    # ic(result)
+    print(u'get programs: "{}" in {} sec.'.format(len(categories), (datetime.now() - start_ts).total_seconds()))
+    return json.dumps(result), 200
 
 
 # Return current playing channel id or -1
