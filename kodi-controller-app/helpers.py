@@ -13,6 +13,8 @@ from flask_sqlalchemy import SQLAlchemy
 from run import db
 import config as cfg
 import aliases
+from aliases_xmltv import ALIASES_XMLTV
+
 
 # https://www.freecodecamp.org/news/sqlalchemy-makes-etl-magically-easy-ab2bd0df928/
 # db = SQLAlchemy(app)
@@ -70,10 +72,18 @@ def cat_chans():
         db.session.commit()
 
         # Validate KODI channels with XML TV channels
+        from sqlalchemy import or_
+        alias2xmltv = {value: key for (key, value) in ALIASES_XMLTV.items()}
         print("Following KODI channels are not linked to XMLTV programs:")
         channels = [x for x in Channel.query.all()]
         for chan in channels:
-            xmlchannels = [x for x in XMLChannel.query.filter(XMLChannel.ulabel == chan.ulabel).all()]
+            alias = ""
+            try:
+                alias = alias2xmltv[chan.label]
+            except KeyError:
+                pass
+            xmlchannels = [x for x in XMLChannel.query.filter(or_(XMLChannel.ulabel == chan.ulabel,
+                                                                  XMLChannel.ulabel == alias)).all()]
             if len(xmlchannels) == 0:
                 print (u'\t{}'.format(chan.label))
 
@@ -180,12 +190,12 @@ def get_xmltv():
 
     # Populate XMLChannel with channels from XMLTV source
     for xc in xmlchannels:
-        xmlchannel = XMLChannel(id=int(xc['id']), label=xc['display-name'][0][0])
+        xmlchannel = XMLChannel(id=int(xc['id']), label=xc['display-name'][0][0].strip())
         db.session.add(xmlchannel)
     db.session.commit()
 
     programs = xmltv.read_programmes(open(out_file_path, 'r'))
-    chunk = 512
+    chunk = 1024
     index = 0
     for pr in programs:
         desc = ""
@@ -283,7 +293,16 @@ def resolve_kodi_channel(xmlChannelId):
     # ic(xmlChannelId)
     channelUlabel = XMLChannel.query.filter(XMLChannel.id == xmlChannelId).first().ulabel
     # ic(channelUlabel)
-    channel = Channel.query.filter(Channel.ulabel == channelUlabel).first()
+    alias = None
+    try:
+        alias = ALIASES_XMLTV[channelUlabel]
+    except KeyError:
+        pass
+    if alias is None:
+        channel = Channel.query.filter(Channel.ulabel == channelUlabel).first()
+    else:
+        channel = Channel.query.filter(Channel.ulabel == alias).first()
+
     # ic(channel)
     if channel is None:
         return None
